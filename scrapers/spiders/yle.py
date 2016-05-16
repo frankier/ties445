@@ -100,7 +100,9 @@ class YleSpider(Spider):
             l.add_value('is_very_easy', False)
             l.add_value('post_date', date_str)
             l.add_value('content', content.extract_first())
-            yield l.load_item()
+            item = l.load_item()
+            if item['content']:
+                yield item
         else:
             cur = content.css('h3:first-of-type')
             gathered = []
