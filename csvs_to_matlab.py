@@ -3,8 +3,11 @@ import csv
 import sys
 import scipy.io as io
 import numpy as np
-import subprocess
+from subprocess import PIPE
+import asyncio
 import argparse
+from asyncio.subprocess import create_subprocess_exec
+from itertools import chain
 
 from collections import deque
 from collections import Counter
@@ -16,6 +19,8 @@ MAX_ENDING_LEN = 20
 MAX_SENT_LEN = 40
 POS_TAGS = ['UNKNOWN', 'PARTICLE', 'TRUNCATED', 'ADJECTIVE', 'ADPOSITION', 'ADVERB', 'NOUN', 'NUMERAL', 'PRONOUN', 'PUNCTUATION', 'VERB']
 POS_TAGS_LEN = len(POS_TAGS)
+
+loop = asyncio.get_event_loop()
 
 def omor_tags_to_dict(omor_tags):
     d = {}
@@ -36,24 +41,16 @@ def deforeignify(s):
 finnpos = None
 
 
-def process_content(finnpos, content):
-    # word/sent, char/word, morph/word, unigram
+async def process_finnpos_input(finnpos, sentences):
     sent_count = 0
     sent_len_counter = Counter()
     word_count = 0
     word_len_counter = Counter()
-    ending_len_counter = Counter()
-    unigrams = Counter()
-    bigrams = Counter()
-    trigrams = Counter()
-    sentences = sent_tokenize(content)
-    for sent in sentences:
-        words = wordpunct_tokenize(sent)
+    for words in sentences:
         sent_len = len(words)
         if sent_len > MAX_SENT_LEN:
             sent_len = MAX_SENT_LEN
         sent_len_counter[sent_len - 1] += 1
-        pos_tags = []
         for word in words:
             finnpos.stdin.write(word.encode('utf-8'))
             finnpos.stdin.write(b'\n')
@@ -63,36 +60,74 @@ def process_content(finnpos, content):
             word_len_counter[word_len - 1] += 1
             word_count += 1
         finnpos.stdin.write(b'\n')
-        finnpos.stdin.flush()
 
-        prev_prev_pos_idx = prev_pos_idx = POS_TAGS.index('PUNCTUATION')
-        for word in words:
-            tags = finnpos.stdout.readline().decode('utf-8')
-            _, _, lemma, omor_tags, _ = tags.split('\t')
-            first_omor_tag = omor_tags.split('||')[0]
-            omor_tags_parsed = omor_tags_to_dict(first_omor_tag)
-            cur_pos = omor_tags_parsed['POS']
-            cur_pos_idx = POS_TAGS.index(cur_pos)
+        sent_count += 1
+    word_dist = normalise_counter(word_len_counter, MAX_WORD_LEN, word_count)
+    sent_dist = normalise_counter(sent_len_counter, MAX_SENT_LEN, sent_count)
+    await finnpos.stdin.drain()
+
+    return (sent_dist, word_dist)
+
+
+async def process_finnpos_output(finnpos, sentences):
+    ending_len_counter = Counter()
+    unigrams = Counter()
+    bigrams = Counter()
+    trigrams = Counter()
+    prev_prev_pos_idx = prev_pos_idx = POS_TAGS.index('PUNCTUATION')
+    ending_word_count = 0
+    gram_count = sum(len(s) for s in sentences)
+    tags_left = gram_count
+    async for tags in finnpos.stdout:
+        tags = tags.decode('utf-8')
+        if tags.strip() == '':
+            prev_prev_pos_idx = prev_pos_idx = POS_TAGS.index('PUNCTUATION')
+            if tags_left <= 0:
+                break
+            continue
+        word, _, lemma, omor_tags, _ = tags.split('\t')
+        first_omor_tag = omor_tags.split('||')[0]
+        omor_tags_parsed = omor_tags_to_dict(first_omor_tag)
+        cur_pos = omor_tags_parsed['POS']
+        cur_pos_idx = POS_TAGS.index(cur_pos)
+        if cur_pos != 'PUNCTUATION':
+            ending_word_count += 1
             ending_len = len(word) - len(lemma) + 1
             if ending_len < 0:
                 ending_len = 0
             elif ending_len > MAX_ENDING_LEN:
                 ending_len = MAX_ENDING_LEN - 1
             ending_len_counter[ending_len] += 1
-            unigrams[cur_pos_idx] += 1
-            bigrams[prev_pos_idx * POS_TAGS_LEN + cur_pos_idx] += 1
-            trigrams[prev_prev_pos_idx * POS_TAGS_LEN * POS_TAGS_LEN + prev_pos_idx * POS_TAGS_LEN + cur_pos_idx] += 1
-        finnpos.stdout.readline()
+        unigrams[cur_pos_idx] += 1
+        bigrams[prev_pos_idx * POS_TAGS_LEN + cur_pos_idx] += 1
+        trigrams[prev_prev_pos_idx * POS_TAGS_LEN * POS_TAGS_LEN + prev_pos_idx * POS_TAGS_LEN + cur_pos_idx] += 1
+        prev_prev_pos_idx = prev_pos_idx
+        prev_pos_idx = cur_pos_idx
+        tags_left -= 1
 
-        sent_count += 1
-    word_dist = normalise_counter(word_len_counter, MAX_WORD_LEN, word_count)
-    sent_dist = normalise_counter(sent_len_counter, MAX_SENT_LEN, sent_count)
-    ending_dist = normalise_counter(ending_len_counter, MAX_ENDING_LEN, word_count)
-    unigram_dist = normalise_counter(unigrams, POS_TAGS_LEN, word_count)
-    bigram_dist = normalise_counter(bigrams, POS_TAGS_LEN * POS_TAGS_LEN, word_count)
-    trigram_dist = normalise_counter(trigrams, POS_TAGS_LEN * POS_TAGS_LEN * POS_TAGS_LEN, word_count)
+    ending_dist = normalise_counter(ending_len_counter, MAX_ENDING_LEN, ending_word_count)
+    unigram_dist = normalise_counter(unigrams, POS_TAGS_LEN, gram_count)
+    bigram_dist = normalise_counter(bigrams, POS_TAGS_LEN * POS_TAGS_LEN, gram_count)
+    trigram_dist = normalise_counter(trigrams, POS_TAGS_LEN * POS_TAGS_LEN * POS_TAGS_LEN, gram_count)
 
-    return (sent_dist, word_dist, ending_dist, unigram_dist, bigram_dist, trigram_dist)
+    return (ending_dist, unigram_dist, bigram_dist, trigram_dist)
+
+
+async def async_process_content(finnpos, content):
+    sentences = []
+    sentence_strs = sent_tokenize(content)
+    for sent in sentence_strs:
+        words = wordpunct_tokenize(sent)
+        sentences.append(words)
+    processed = await asyncio.gather(
+        process_finnpos_input(finnpos, sentences),
+        process_finnpos_output(finnpos, sentences))
+    # word/sent, char/word, morph/word, unigram
+    return tuple(chain.from_iterable(processed))
+
+
+def process_content(finnpos, content):
+    return loop.run_until_complete(async_process_content(finnpos, content))
 
 
 def parse_args():
@@ -100,6 +135,7 @@ def parse_args():
     parser.add_argument('output', help='Output (.mat) file')
     parser.add_argument('--gutenberg', help="Project Gutenberg CSV")
     parser.add_argument('--punkinfinland', help="Punkinfinland CSV")
+    parser.add_argument('--yle', help="Yle selkouutiset CSV")
     parser.add_argument('--target-id', help="Just try and extract one, specified, target id")
     parser.add_argument('--metaonly', action='store_true', help="Just update the metadata without updating the stats")
 
@@ -107,7 +143,6 @@ def parse_args():
 
 
 def force_ascii(x):
-    print(x)
     return x.encode('ascii')
 
 
@@ -130,7 +165,8 @@ def main():
             trigrams = []
         )
 
-        finnpos = subprocess.Popen(['ftb-label'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        finnpos = loop.run_until_complete(create_subprocess_exec(
+            'ftb-label', stdin=PIPE, stdout=PIPE))
 
     def proc_cont(cont):
         sd, wd, wmd, u, b, t = process_content(finnpos, cont)
@@ -164,6 +200,23 @@ def main():
                     continue
                 print(id)
                 mats['meta'].append([id, 'punkinfinland', deforeignify(row['author'])])
+                if not args.metaonly:
+                    proc_cont(row['content'])
+
+    # Yle
+    if args.yle:
+        with open(args.yle) as csvfile:
+            yle = csv.DictReader(csvfile)
+            for row in yle:
+                id = row['id']
+                if target_id is not None and id != target_id:
+                    continue
+                print(id)
+                if row['is_very_easy'] == "[True]":
+                    subclass_name = 'tosihelppo'
+                else:
+                    subclass_name = 'selkouutiset'
+                mats['meta'].append([id, 'yle', subclass_name])
                 if not args.metaonly:
                     proc_cont(row['content'])
 
