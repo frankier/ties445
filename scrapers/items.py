@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
 
+import re
+
 from scrapy.item import Item, Field
 from scrapy.loader.processors import MapCompose, Compose
 from scrapylib.processors import default_input_processor as clean_html_processor
 from scrapylib.processors.date import parse_datetime
 from lxml import html as lhtml
 
-def fix_tree(html):
-    lh = lhtml.fromstring(html)
-
+def remove_comments(lh):
     comments = lh.xpath('//comment()')
     for c in comments:
         p = c.getparent()
         p.remove(c)
+
+
+def fix_tree_punknews(html):
+    lh = lhtml.fromstring(html)
+    remove_comments(lh)
 
     for div in lh.cssselect('.quotetitle, .quotecontent'):
         div.drop_tree()
@@ -31,7 +36,36 @@ def fix_tree(html):
     return lhtml.tostring(lh, encoding='unicode')
 
 clean_post_processor = Compose(
-    MapCompose(fix_tree),
+    MapCompose(fix_tree_punknews),
+    clean_html_processor
+)
+
+def fix_tree_yle(html):
+    lh = lhtml.fromstring(html)
+    remove_comments(lh)
+
+    for figure in lh.cssselect('figure, div.media'):
+        figure.drop_tree()
+
+    for h3 in lh.cssselect('h3'):
+        title = h3.text.strip()
+        if not re.match('[.!?]$', title):
+            title += '.'
+        h3.text = title
+
+    html = lhtml.tostring(lh, encoding='unicode')
+
+    print("TRACE", html)
+
+    return html
+
+clean_post_processor = Compose(
+    MapCompose(fix_tree_punknews),
+    clean_html_processor
+)
+
+clean_news_processor = Compose(
+    MapCompose(fix_tree_yle),
     clean_html_processor
 )
 
@@ -52,6 +86,6 @@ class BookPage(Item):
 
 class NewsItem(Item):
     id = Field()
-    title = Field()
+    is_very_easy = Field()
     post_date = Field()
-    content = Field()
+    content = Field(input_processor=clean_news_processor)
