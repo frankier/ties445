@@ -1,0 +1,81 @@
+\documentclass{beamer}
+
+\usepackage[main=english,finnish]{babel}
+\usepackage{cmbright}
+\usepackage{fontspec}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{graphicx}
+
+\hypersetup{pdfencoding=auto}
+
+\newsavebox{\mysavebox}
+\newlength{\myrest}
+
+%\usepackage{polyglossia}
+\setsansfont[Ligatures = TeX,
+             BoldFont  = CMU Bright SemiBold,
+             ItalicFont = CMU Bright Oblique,
+            ]{CMU Bright Roman}
+\setmainfont[Ligatures = TeX,
+             BoldFont  = CMU Bright SemiBold,
+             ItalicFont = CMU Bright Oblique,
+            ]{CMU Bright Roman}
+\setmonofont[Ligatures = TeX,
+             BoldFont  = CMU Typewriter Text Bold,
+             ItalicFont = CMU Typewriter Text Oblique,
+            ]{CMU Typewriter Text}
+\usetheme{Madrid}
+
+\mode<presentation>
+\setbeamercovered{transparent}
+\setbeamertemplate{enumerate items}[default]
+\setbeamertemplate{itemize items}[default]
+
+\title[Finnish language text mining]{Extraction, exploration and exploitation of diverse Finnish language texts}
+\subtitle{TIES445 Data Mining project}
+\author[Robertson \& Kanushin]{Frankie Robertson\inst{1} \and Max Kanushin\inst{2}}
+\institute[JYU, LETI]{\inst{1} University of Jyväskylä \and%
+                      \inst{2} Saint Petersburg State Electrotechnical University}
+
+\date{18th of April, 2016}
+
+\titlegraphic{
+  \includegraphics[height=1.5cm]{jyu.pdf}
+  \hspace{1cm}
+  \includegraphics[height=1.5cm]{leti_logo.png}
+}
+
+\begin{document}
+
+\section{Title}
+\begin{frame}
+  \titlepage{}
+\end{frame}
+
+\begin{frame}
+\frametitle{Contents}
+\begin{enumerate}
+  \item 
+\end{enumerate}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{What is morphology?}
+\begin{exampleblock}{}
+  {\large ``In linguistics, morphology is the study of the forms of word formation, in particular inflected forms.''}
+  \hfill{\small--- OED}
+\end{exampleblock}
+\pause{}
+\vfill
+
+Two morphological processes:
+\begin{itemize}
+\item Inflection\pause{}
+\item Word derivation
+\end{itemize}
+
+\end{frame}
+
+\end{document}
