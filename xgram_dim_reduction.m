@@ -21,8 +21,12 @@ yle_s       = yle(randsample(size_yle(1), sample_size), :);
 merged      = [gutenb_s; punk_s; yle_s];
 
 % Try commenting out
-%merged = bsxfun(@rdivide, merged, std(merged));
-%merged(isnan(merged)) = 0;
+
+mu = mean(merged);
+sigma = std(merged);
+
+merged = bsxfun(@rdivide, bsxfun(@minus, merged, mu), sigma);
+merged(isnan(merged)) = 0;
 
 merged_dists    = pdist(merged, 'euclid'); % or try cityblock
 merged_2        = mdscale(merged_dists, 2, 'Start', 'random');
