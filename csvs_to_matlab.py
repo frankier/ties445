@@ -9,6 +9,8 @@ import argparse
 from asyncio.subprocess import create_subprocess_exec
 from itertools import chain
 
+from utils import omor_unsafe
+
 from collections import deque
 from collections import Counter
 from nltk.tokenize import sent_tokenize
@@ -21,6 +23,9 @@ POS_TAGS = ['UNKNOWN', 'PARTICLE', 'TRUNCATED', 'ADJECTIVE', 'ADPOSITION', 'ADVE
 POS_TAGS_LEN = len(POS_TAGS)
 
 loop = asyncio.get_event_loop()
+
+class BlankEntry(Exception):
+    pass
 
 def omor_tags_to_dict(omor_tags):
     d = {}
@@ -118,7 +123,10 @@ async def async_process_content(finnpos, content):
     sentence_strs = sent_tokenize(content)
     for sent in sentence_strs:
         words = wordpunct_tokenize(sent)
-        sentences.append(words)
+        sentence = [word for word in words if not omor_unsafe(word)]
+        if not len(sentence):
+            raise BlankEntry()
+        sentences.append(sentence)
     processed = await asyncio.gather(
         process_finnpos_input(finnpos, sentences),
         process_finnpos_output(finnpos, sentences))
@@ -130,6 +138,46 @@ def process_content(finnpos, content):
     return loop.run_until_complete(async_process_content(finnpos, content))
 
 
+async def process_finnpos_lemma_input(finnpos, sentences):
+    for words in sentences:
+        for word in words:
+            if omor_unsafe(word):
+                continue
+            finnpos.stdin.write(word.encode('utf-8'))
+            finnpos.stdin.write(b'\n')
+        finnpos.stdin.write(b'\n')
+    await finnpos.stdin.drain()
+
+
+async def process_finnpos_lemma_output(finnpos, sentences):
+    gram_count = sum(sum(1 for w in s if not omor_unsafe(w)) for s in sentences)
+    tags_left = gram_count
+    lemmas = []
+    async for tags in finnpos.stdout:
+        tags = tags.decode('utf-8')
+        if tags.strip() == '':
+            if tags_left <= 0:
+                break
+            continue
+        word, _, lemma, omor_tags, _ = tags.split('\t')
+        lemmas.append(lemma)
+        tags_left -= 1
+
+    return lemmas
+
+
+async def async_process_lemma(finnpos, content):
+    sentences = []
+    sentence_strs = sent_tokenize(content)
+    for sent in sentence_strs:
+        words = wordpunct_tokenize(sent)
+        sentences.append(words)
+    processed = await asyncio.gather(
+        process_finnpos_input(finnpos, sentences),
+        process_finnpos_output(finnpos, sentences))
+    return processed[1]
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Format csvs from content scraping into a matlab file .")
     parser.add_argument('output', help='Output (.mat) file')
@@ -137,7 +185,6 @@ def parse_args():
     parser.add_argument('--punkinfinland', help="Punkinfinland CSV")
     parser.add_argument('--yle', help="Yle selkouutiset CSV")
     parser.add_argument('--target-id', help="Just try and extract one, specified, target id")
-    parser.add_argument('--metaonly', action='store_true', help="Just update the metadata without updating the stats")
 
     return parser.parse_args()
 
@@ -151,22 +198,18 @@ def main():
 
     target_id = args.target_id
 
-    if args.metaonly:
-        mats = io.loadmat(args.output, appendmat=False)
-        mats['meta'] = []
-    else:
-        mats = dict(
-            meta = [],
-            sentence_len_dist = [],
-            word_len_dist = [],
-            word_morph_len_dist = [],
-            unigrams = [],
-            bigrams = [],
-            trigrams = []
-        )
+    mats = dict(
+        meta = [],
+        sentence_len_dist = [],
+        word_len_dist = [],
+        word_morph_len_dist = [],
+        unigrams = [],
+        bigrams = [],
+        trigrams = []
+    )
 
-        finnpos = loop.run_until_complete(create_subprocess_exec(
-            'ftb-label', stdin=PIPE, stdout=PIPE))
+    finnpos = loop.run_until_complete(create_subprocess_exec(
+        'ftb-label', stdin=PIPE, stdout=PIPE))
 
     def proc_cont(cont):
         sd, wd, wmd, u, b, t = process_content(finnpos, cont)
@@ -186,9 +229,12 @@ def main():
                 if target_id is not None and id != target_id:
                     continue
                 print(id)
-                mats['meta'].append([id, 'gutenberg', row['id']])
-                if not args.metaonly:
+                try:
                     proc_cont(row['content'])
+                except BlankEntry:
+                    continue
+                else:
+                    mats['meta'].append([id, 'gutenberg', row['id']])
 
     # Punk in Finland
     if args.punkinfinland:
@@ -199,9 +245,12 @@ def main():
                 if target_id is not None and id != target_id:
                     continue
                 print(id)
-                mats['meta'].append([id, 'punkinfinland', deforeignify(row['author'])])
-                if not args.metaonly:
+                try:
                     proc_cont(row['content'])
+                except BlankEntry:
+                    continue
+                else:
+                    mats['meta'].append([id, 'punkinfinland', deforeignify(row['author'])])
 
     # Yle
     if args.yle:
@@ -216,18 +265,20 @@ def main():
                     subclass_name = 'tosihelppo'
                 else:
                     subclass_name = 'selkouutiset'
-                mats['meta'].append([id, 'yle', subclass_name])
-                if not args.metaonly:
+                try:
                     proc_cont(row['content'])
+                except BlankEntry:
+                    continue
+                else:
+                    mats['meta'].append([id, 'yle', subclass_name])
 
     # Everything must be ASCII clean or else Matlab with have a hissy fit
     mats['meta'] = np.array(mats['meta'])
     mats['meta'] = np.vectorize(force_ascii)(mats['meta'])
 
-    if not args.metaonly:
-        for k in mats:
-            if k != 'meta':
-                mats[k] = np.array(mats[k])
+    for k in mats:
+        if k != 'meta':
+            mats[k] = np.array(mats[k])
 
     io.savemat(args.output, mats, appendmat=False)
 
