@@ -8,6 +8,8 @@
 \usepackage{graphicx}
 \usepackage{pifont}
 \usepackage{layout}
+\usepackage{tikz}
+\usepackage{pgfplots}
 
 \newcommand{\cmark}{\ding{51}}%
 \newcommand{\xmark}{\ding{55}}%
@@ -139,16 +141,16 @@
   \frametitle{Preprocessing \& feature extraction}
   \begin{itemize}
     \item One set of matrices for distributions of word length and sentence
-      length. Tokenisation using nltk.
+      length. Tokenisation using nltk.\pause{}
 
     \item Other matrices based on gramatical analysis using FinnPos, a
       morphological analyser and part of speech tagger (built on top of another
-      project called OMorFi).
+      project called OMorFi).\pause{}
 
-    \item One matric measures inflection complexity. It should be possible to
+    \item One matrix measures inflection complexity. It should be possible to
       segment word forms into morphs (and get distribution of morphs per word)
       but requires in depth fiddling with FinnPOS. For the sake of time just
-      used different between lemma length and word form length.
+      used different between lemma length and word form length.\pause{}
 
     \item Another set of matrices to represent part of speech distribution of
       individual words, pairs of words and and triplets of words (unigrams,
@@ -180,37 +182,47 @@
 
 \begin{frame}
   \frametitle{Exploration - dimension reduction on trigrams}
+  \begin{itemize}
+    \item Tooks a classwise sample of the trigrams\pause{}
+    \item Computed multi dimensional scaling on 4 different distance measures (grid search)\pause{}
+    \item Euclid vs cityblock distance and absolute trigram frequency versus frequency normalised for standard deviation
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Exploration - dimension reduction on trigrams}
   \begin{columns}[t]
-    \column{.5\textwidth}
-      \centering
-      \begin{figure}[H]
-        \include[width=5cm,height=3.5cm]{lab1}\\
-      \end{figure}
-      \begin{figure}[H]
-        \include[width=5cm,height=4cm]{lab2}
-      \end{figure}
-    \column{.5\textwidth}
-      \centering
-      \begin{figure}[H]
-        \include[width=5cm,height=4cm]{lab3}\\
-      \end{figure}
-      \begin{figure}[H]
-        \include[width=5cm,height=4cm]{lab4}
-      \end{figure}
+    \begin{column}{0.5\textwidth}
+      \vspace{-3em}
+      \include{normeuclid}
+      \vspace{-3.5em}
+      \include{abseuclid}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \vspace{-3em}
+      \include{normcity}
+      \vspace{-3em}
+      \include{abscity}
+    \end{column}
   \end{columns}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Exploration - clutering on trigrams}
+
 \end{frame}
 
 \begin{frame}
   \frametitle{Ideas for exploitation}
   \begin{itemize}
-    \item Original aim is to obtain a metric
+    \item Original aim is to obtain a metric\pause{}
 
     \item But this is an unsupervised situation (unless we make assumptions
       about the different sources as class labels) so simple regression is not
-      possible
+      possible\pause{}
 
     \item If we can identify separate classes and characterise them with a
-      metric, unseen data can be characterised by taking a weighted sum
+      metric, unseen data can be characterised by taking a weighted sum\pause{}
 
     \item More sophisticated extensions might be possible, eg Guassian mixture
       models trained with expectation maximisation would consider different
@@ -221,12 +233,10 @@
 \begin{frame}
   \frametitle{Potential future work}
   \begin{itemize}
-    \item Actually separate this data set.
-
-    \item TD-IDF.
+    \item TD-IDF.\pause{}
 
     \item Use segementation to enable a ``bag of morphs'' model. Useful
-      since eg -ni, -si, -mme, -tte strongly suggest written language.
+      since eg -ni, -si, -mme, -tte strongly suggest written language.\pause{}
 
     \item Obtain a supervised data set.
   \end{itemize}
